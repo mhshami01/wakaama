@@ -19,11 +19,17 @@
 #define CONNECTION_H_
 
 #include <stdio.h>
+
+#if defined(WIN32)
+#include <WinSock2.h>
+#else
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#endif
+
 #include <sys/stat.h>
 #include <liblwm2m.h>
 
@@ -43,6 +49,7 @@ typedef struct _connection_t
 } connection_t;
 
 int create_socket(const char * portStr, int ai_family);
+int make_server_socket(int port);
 
 connection_t * connection_find(connection_t * connList, struct sockaddr_storage * addr, size_t addrLen);
 connection_t * connection_new_incoming(connection_t * connList, int sock, struct sockaddr * addr, size_t addrLen);

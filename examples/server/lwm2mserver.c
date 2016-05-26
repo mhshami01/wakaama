@@ -56,15 +56,21 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
+
 #include <stdio.h>
 #include <ctype.h>
+
+#if defined(WIN32)
+#include <WinSock2.h>
+#else
+#include <unistd.h>
 #include <sys/select.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#endif
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <signal.h>
@@ -90,6 +96,10 @@ static char * prv_dump_binding(lwm2m_binding_t binding)
     {
     case BINDING_UNKNOWN:
         return "Not specified";
+#if defined(COAP_TCP)
+    case BINDING_T:
+        return "TCP";
+#else
     case BINDING_U:
         return "UDP";
     case BINDING_UQ:
@@ -102,6 +112,7 @@ static char * prv_dump_binding(lwm2m_binding_t binding)
         return "UDP plus SMS";
     case BINDING_UQS:
         return "UDP queue mode plus SMS";
+#endif
     default:
         return "";
     }
@@ -179,7 +190,6 @@ static int prv_read_id(char * buffer,
     return nb;
 }
 
-
 static void prv_result_callback(uint16_t clientID,
                                 lwm2m_uri_t * uriP,
                                 int status,
@@ -239,7 +249,6 @@ static void prv_read_client(char * buffer,
 
     result = prv_read_id(buffer, &clientId);
     if (result != 1) goto syntax_error;
-
     buffer = get_next_arg(buffer, &end);
     if (buffer[0] == 0) goto syntax_error;
 
@@ -329,10 +338,12 @@ static void prv_write_client(char * buffer,
     {
         fprintf(stdout, "OK");
     }
+
     else
     {
         prv_print_error(result);
     }
+
     return;
 
 syntax_error:
@@ -587,7 +598,6 @@ static void prv_create_client(char * buffer,
    // TLV
 
    /* Client dependent part   */
-
     if (uri.objectId == 1024)
     {
         lwm2m_data_t * dataP;
@@ -796,6 +806,21 @@ void print_usage(void)
 }
 
 
+uint32_t parse_int(uint8_t *bytes, size_t length)
+{
+    uint32_t retVal = 0;
+    size_t   i = 0;
+
+    while (i < length)
+    {
+        retVal <<= 8;
+        retVal |= bytes[i++];
+    }
+
+    return retVal;
+}
+
+
 int main(int argc, char *argv[])
 {
     int sock;
@@ -875,7 +900,7 @@ int main(int argc, char *argv[])
         if (argv[opt] == NULL
             || argv[opt][0] != '-'
             || argv[opt][2] != 0)
-        {
+    {
             print_usage();
             return 0;
         }
@@ -900,7 +925,8 @@ int main(int argc, char *argv[])
         opt += 1;
     }
 
-    sock = create_socket(localPort, addressFamily);
+
+    sock = make_server_socket(atoi(LWM2M_STANDARD_PORT_STR));
     if (sock < 0)
     {
         fprintf(stderr, "Error opening socket: %d\r\n", errno);
@@ -915,7 +941,6 @@ int main(int argc, char *argv[])
     }
 
     signal(SIGINT, handle_sigint);
-
     for (i = 0 ; commands[i].name != NULL ; i++)
     {
         commands[i].userData = (void *)lwm2mH;
@@ -924,10 +949,19 @@ int main(int argc, char *argv[])
 
     lwm2m_set_monitoring_callback(lwm2mH, prv_monitor_callback, lwm2mH);
 
+    struct sockaddr_in clntAddr;
+    unsigned int       clntLen = sizeof(clntAddr);
+    int clientSock = accept(sock, (struct sockaddr *) &clntAddr, &clntLen);
+    if (clientSock < 0)
+    {
+        fprintf(stderr, "OOPS %d\n", errno);
+        return -200;
+    }
+
     while (0 == g_quit)
     {
         FD_ZERO(&readfds);
-        FD_SET(sock, &readfds);
+        FD_SET(clientSock, &readfds);
         FD_SET(STDIN_FILENO, &readfds);
 
         tv.tv_sec = 60;
@@ -941,7 +975,6 @@ int main(int argc, char *argv[])
         }
 
         result = select(FD_SETSIZE, &readfds, 0, 0, &tv);
-
         if ( result < 0 )
         {
             if (errno != EINTR)
@@ -949,25 +982,35 @@ int main(int argc, char *argv[])
               fprintf(stderr, "Error in select(): %d\r\n", errno);
             }
         }
+
         else if (result > 0)
         {
             uint8_t buffer[MAX_PACKET_SIZE];
             int numBytes;
 
-            if (FD_ISSET(sock, &readfds))
+            if (FD_ISSET(clientSock, &readfds))
             {
-                struct sockaddr_storage addr;
-                socklen_t addrLen;
-
-                addrLen = sizeof(addr);
-                numBytes = recvfrom(sock, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&addr, &addrLen);
-
+                numBytes = recv(clientSock, buffer, 2 /*uint16_t*/, 0);
                 if (numBytes == -1)
                 {
                     fprintf(stderr, "Error in recvfrom(): %d\r\n", errno);
                 }
+
                 else
                 {
+                    struct sockaddr_storage addr;
+                    socklen_t addrLen = sizeof(addr);
+
+                    uint32_t msgLength = parse_int(buffer, 2);
+                    printf("\tmsgLength: %d\n", msgLength);
+
+                    numBytes = 0; /* number of bytes read */
+                    while (numBytes < msgLength)
+                    {
+                        numBytes += recvfrom(clientSock, &buffer[numBytes], msgLength - numBytes, 0, (struct sockaddr *) &addr, &addrLen);
+                    }
+                    printf("\trLength: %d\n", numBytes);
+
                     char s[INET6_ADDRSTRLEN];
                     in_port_t port;
                     connection_t * connP;
@@ -976,9 +1019,10 @@ int main(int argc, char *argv[])
                     if (AF_INET == addr.ss_family)
                     {
                         struct sockaddr_in *saddr = (struct sockaddr_in *)&addr;
-                        inet_ntop(saddr->sin_family, &saddr->sin_addr, s, INET6_ADDRSTRLEN);
+                        inet_ntop(saddr->sin_family, &saddr->sin_addr, s, INET_ADDRSTRLEN);
                         port = saddr->sin_port;
                     }
+
                     else if (AF_INET6 == addr.ss_family)
                     {
                         struct sockaddr_in6 *saddr = (struct sockaddr_in6 *)&addr;
@@ -992,18 +1036,20 @@ int main(int argc, char *argv[])
                     connP = connection_find(connList, &addr, addrLen);
                     if (connP == NULL)
                     {
-                        connP = connection_new_incoming(connList, sock, (struct sockaddr *)&addr, addrLen);
+                        connP = connection_new_incoming(connList, clientSock, (struct sockaddr *)&addr, addrLen);
                         if (connP != NULL)
                         {
                             connList = connP;
                         }
                     }
+
                     if (connP != NULL)
                     {
                         lwm2m_handle_packet(lwm2mH, buffer, numBytes, connP);
                     }
                 }
             }
+
             else if (FD_ISSET(STDIN_FILENO, &readfds))
             {
                 numBytes = read(STDIN_FILENO, buffer, MAX_PACKET_SIZE - 1);
@@ -1014,11 +1060,13 @@ int main(int argc, char *argv[])
                     handle_command(commands, (char*)buffer);
                     fprintf(stdout, "\r\n");
                 }
+
                 if (g_quit == 0)
                 {
                     fprintf(stdout, "> ");
                     fflush(stdout);
                 }
+
                 else
                 {
                     fprintf(stdout, "\r\n");
@@ -1028,6 +1076,7 @@ int main(int argc, char *argv[])
     }
 
     lwm2m_close(lwm2mH);
+    close(clientSock);
     close(sock);
     connection_free(connList);
 

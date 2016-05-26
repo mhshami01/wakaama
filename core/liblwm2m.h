@@ -1,4 +1,4 @@
-/*******************************************************************************
+﻿/*******************************************************************************
  *
  * Copyright (c) 2013, 2014 Intel Corporation and others.
  * All rights reserved. This program and the accompanying materials
@@ -60,7 +60,12 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+
+#ifdef WIN32
 #include <time.h>
+#else
+#include <sys/time.h>
+#endif
 
 #ifdef LWM2M_SERVER_MODE
 #ifndef LWM2M_SUPPORT_JSON
@@ -210,7 +215,9 @@ lwm2m_list_t * lwm2m_list_add(lwm2m_list_t * head, lwm2m_list_t * node);
 // Return the node with ID 'id' from the list 'head' or NULL if not found
 lwm2m_list_t * lwm2m_list_find(lwm2m_list_t * head, uint16_t id);
 // Remove the node with ID 'id' from the list 'head' and return the new list
+
 lwm2m_list_t * lwm2m_list_remove(lwm2m_list_t * head, uint16_t id, lwm2m_list_t ** nodeP);
+
 // Return the lowest unused ID in the list 'head'
 uint16_t lwm2m_list_newId(lwm2m_list_t * head);
 // Free a list. Do not use if nodes contain allocated pointers as it calls lwm2m_free on nodes only.
@@ -411,12 +418,16 @@ typedef enum
 typedef enum
 {
     BINDING_UNKNOWN = 0,
+#if defined(COAP_TCP)
+	BINDING_T,   // TCP
+#else
     BINDING_U,   // UDP
     BINDING_UQ,  // UDP queue mode
     BINDING_S,   // SMS
     BINDING_SQ,  // SMS queue mode
     BINDING_US,  // UDP plus SMS
     BINDING_UQS  // UDP queue mode plus SMS
+#endif
 } lwm2m_binding_t;
 
 typedef struct _lwm2m_server_
@@ -510,10 +521,14 @@ typedef struct _lwm2m_client_
     char *                  altPath;
     bool                    supportJSON;
     uint32_t                lifetime;
+#ifdef LWM2M_SERVER_MODE
     time_t                  endOfLife;
+#endif
     void *                  sessionH;
     lwm2m_client_object_t * objectList;
+#ifdef LWM2M_SERVER_MODE
     lwm2m_observation_t *   observationList;
+#endif
 } lwm2m_client_t;
 
 
@@ -569,7 +584,9 @@ typedef struct _lwm2m_watcher_
     size_t tokenLen;
     time_t lastTime;
     uint32_t counter;
+#if !defined(COAP_TCP)
     uint16_t lastMid;
+#endif
     union
     {
         int64_t asInteger;
@@ -643,6 +660,8 @@ typedef struct
 
 // initialize a liblwm2m context.
 lwm2m_context_t * lwm2m_init(void * userData);
+// setup server list
+int lwm2m_start(lwm2m_context_t * contextP);
 // close a liblwm2m context.
 void lwm2m_close(lwm2m_context_t * contextP);
 

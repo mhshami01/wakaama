@@ -1,4 +1,4 @@
-/*******************************************************************************
+﻿/*******************************************************************************
  *
  * Copyright (c) 2013, 2014 Intel Corporation and others.
  * All rights reserved. This program and the accompanying materials
@@ -154,12 +154,12 @@ static lwm2m_watcher_t * prv_getWatcher(lwm2m_context_t * contextP,
 }
 
 coap_status_t observe_handleRequest(lwm2m_context_t * contextP,
-                                    lwm2m_uri_t * uriP,
-                                    lwm2m_server_t * serverP,
-                                    int size,
-                                    lwm2m_data_t * dataP,
-                                    coap_packet_t * message,
-                                    coap_packet_t * response)
+                                     lwm2m_uri_t * uriP,
+                                     lwm2m_server_t * serverP,
+                                     int size,
+                                     lwm2m_data_t * dataP,
+                                     coap_packet_t * message,
+                                     coap_packet_t * response)
 {
     lwm2m_watcher_t * watcherP;
     uint32_t count;
@@ -215,6 +215,13 @@ void observe_cancel(lwm2m_context_t * contextP,
                     uint16_t mid,
                     void * fromSessionH)
 {
+#if defined(COAP_TCP)
+    // NO OP. The request should have failed up stream.
+    //
+    LOG("cancel_observe()\r\n");
+
+#else
+
     lwm2m_observed_t * observedP;
 
     LOG("observe_cancel()\r\n");
@@ -259,17 +266,18 @@ void observe_cancel(lwm2m_context_t * contextP,
             return;
         }
     }
+#endif
 }
 
 coap_status_t observe_setParameters(lwm2m_context_t * contextP,
-                                    lwm2m_uri_t * uriP,
-                                    lwm2m_server_t * serverP,
-                                    lwm2m_attributes_t * attrP)
+                                     lwm2m_uri_t * uriP,
+                                     lwm2m_server_t * serverP,
+                                     lwm2m_attributes_t * attrP)
 {
     uint8_t result;
     lwm2m_watcher_t * watcherP;
 
-    LOG("observe_setParameters()\r\n");
+    LOG("observe_set_parameters([/%d/%d/%d])\r\n", uriP->objectId, uriP->instanceId, uriP->resourceId);
 
     if (!LWM2M_URI_IS_SET_INSTANCE(uriP) && LWM2M_URI_IS_SET_RESOURCE(uriP)) return COAP_400_BAD_REQUEST;
 
@@ -281,7 +289,6 @@ coap_status_t observe_setParameters(lwm2m_context_t * contextP,
         result = object_checkNumeric(contextP, uriP);
         if (COAP_205_CONTENT != result) return result;
     }
-
     watcherP = prv_getWatcher(contextP, uriP, serverP);
     if (watcherP == NULL) return COAP_500_INTERNAL_SERVER_ERROR;
 
@@ -354,11 +361,12 @@ coap_status_t observe_setParameters(lwm2m_context_t * contextP,
         }
     }
 
+    LOG("PMIN = %d, PMAX = %d)\r\n", attrP->minPeriod, attrP->maxPeriod);
     return COAP_204_CHANGED;
 }
 
 lwm2m_observed_t * observe_findByUri(lwm2m_context_t * contextP,
-                                     lwm2m_uri_t * uriP)
+    lwm2m_uri_t * uriP)
 {
     lwm2m_observed_t * targetP;
 
@@ -368,19 +376,17 @@ lwm2m_observed_t * observe_findByUri(lwm2m_context_t * contextP,
         if (targetP->uri.objectId == uriP->objectId)
         {
             if ((!LWM2M_URI_IS_SET_INSTANCE(uriP) && !LWM2M_URI_IS_SET_INSTANCE(&(targetP->uri)))
-             || (LWM2M_URI_IS_SET_INSTANCE(uriP) && LWM2M_URI_IS_SET_INSTANCE(&(targetP->uri)) && (uriP->instanceId == targetP->uri.instanceId)))
-             {
-                 if ((!LWM2M_URI_IS_SET_RESOURCE(uriP) && !LWM2M_URI_IS_SET_RESOURCE(&(targetP->uri)))
-                     || (LWM2M_URI_IS_SET_RESOURCE(uriP) && LWM2M_URI_IS_SET_RESOURCE(&(targetP->uri)) && (uriP->resourceId == targetP->uri.resourceId)))
-                 {
-                     return targetP;
-                 }
-             }
+                || (LWM2M_URI_IS_SET_INSTANCE(uriP) && LWM2M_URI_IS_SET_INSTANCE(&(targetP->uri)) && (uriP->instanceId == targetP->uri.instanceId)))
+            {
+                if ((!LWM2M_URI_IS_SET_RESOURCE(uriP) && !LWM2M_URI_IS_SET_RESOURCE(&(targetP->uri)))
+                    || (LWM2M_URI_IS_SET_RESOURCE(uriP) && LWM2M_URI_IS_SET_RESOURCE(&(targetP->uri)) && (uriP->resourceId == targetP->uri.resourceId)))
+                {
+                    return targetP;
+                }
+            }
         }
         targetP = targetP->next;
     }
-
-    return NULL;
 }
 
 void lwm2m_resource_value_changed(lwm2m_context_t * contextP,
@@ -388,6 +394,7 @@ void lwm2m_resource_value_changed(lwm2m_context_t * contextP,
 {
     lwm2m_observed_t * targetP;
 
+    LOG("lwm2m_resource_value_changed(/%d/%d/%d)\n", uriP->objectId, uriP->instanceId, uriP->resourceId);
     targetP = contextP->observedList;
     while (targetP != NULL)
     {
@@ -415,8 +422,8 @@ void lwm2m_resource_value_changed(lwm2m_context_t * contextP,
 }
 
 void observe_step(lwm2m_context_t * contextP,
-                  time_t currentTime,
-                  time_t * timeoutP)
+                      time_t currentTime,
+                      time_t * timeoutP)
 {
     lwm2m_observed_t * targetP;
 
@@ -448,7 +455,7 @@ void observe_step(lwm2m_context_t * contextP,
                 storeValue = true;
                 break;
             default:
-                continue;
+                break;
             }
         }
         for (watcherP = targetP->watcherList ; watcherP != NULL ; watcherP = watcherP->next)
@@ -460,11 +467,11 @@ void observe_step(lwm2m_context_t * contextP,
                 if (watcherP->update == true)
                 {
                     // value changed, should we notify the server ?
-
                     if (watcherP->parameters == NULL || watcherP->parameters->toSet == 0)
                     {
                         // no conditions
                         notify = true;
+                        LOG("observation_step(/%d/%d/%d) notify[1] = TRUE\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId);
                     }
 
                     if (notify == false
@@ -497,6 +504,7 @@ void observe_step(lwm2m_context_t * contextP,
                             default:
                                 break;
                             }
+                            LOG("observation_step(/%d/%d/%d) notify[2] = %s\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId, notify ? "TRUE" : "FALSE");
                         }
                         if ((watcherP->parameters->toSet & LWM2M_ATTR_FLAG_GREATER_THAN) != 0)
                         {
@@ -524,6 +532,7 @@ void observe_step(lwm2m_context_t * contextP,
                             default:
                                 break;
                             }
+                            LOG("observation_step(/%d/%d/%d) notify[3] = %s\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId, notify ? "TRUE" : "FALSE");
                         }
                         if ((watcherP->parameters->toSet & LWM2M_ATTR_FLAG_STEP) != 0)
                         {
@@ -556,6 +565,7 @@ void observe_step(lwm2m_context_t * contextP,
                             default:
                                 break;
                             }
+                            LOG("observation_step(/%d/%d/%d) notify[4] = %s\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId, notify? "TRUE" : "FALSE");
                         }
                     }
 
@@ -573,6 +583,7 @@ void observe_step(lwm2m_context_t * contextP,
                         {
                             notify = true;
                         }
+                        LOG("observation_step(/%d/%d/%d) notify[5] = %s\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId, notify ? "TRUE" : "FALSE");
                     }
                 }
 
@@ -585,6 +596,7 @@ void observe_step(lwm2m_context_t * contextP,
                     {
                         notify = true;
                     }
+                    LOG("observation_step(/%d/%d/%d) notify[6] = %s\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId, notify ? "TRUE" : "FALSE");
                 }
 
                 if (notify == true)
@@ -604,13 +616,20 @@ void observe_step(lwm2m_context_t * contextP,
                                 break;
                             }
                         }
+#if defined(COAP_TCP)
+                        coap_init_message(message, COAP_TYPE_NON, COAP_205_CONTENT);
+#else
                         coap_init_message(message, COAP_TYPE_NON, COAP_205_CONTENT, 0);
+#endif
                         coap_set_header_content_type(message, format);
                         coap_set_payload(message, buffer, length);
+                        LOG("Observe Update[/%d/%d/%d]: %.*s\n", targetP->uri.objectId, targetP->uri.instanceId, targetP->uri.resourceId, length, buffer);
                     }
                     watcherP->lastTime = currentTime;
+#if !defined(COAP_TCP)
                     watcherP->lastMid = contextP->nextMID++;
                     message->mid = watcherP->lastMid;
+#endif
                     coap_set_header_token(message, watcherP->token, watcherP->tokenLen);
                     coap_set_header_observe(message, watcherP->counter++);
                     (void)message_send(contextP, message, watcherP->server->sessionH);
@@ -920,13 +939,21 @@ bool observe_handleNotify(lwm2m_context_t * contextP,
     observationP = (lwm2m_observation_t *)lwm2m_list_find((lwm2m_list_t *)clientP->observationList, obsID);
     if (observationP == NULL)
     {
-        coap_init_message(response, COAP_TYPE_RST, 0, message->mid);
+        coap_init_message(response, COAP_TYPE_RST, 0
+#if !defined(COAP_TCP)
+            , message->mid
+#endif
+            );
         message_send(contextP, response, fromSessionH);
     }
     else
     {
         if (message->type == COAP_TYPE_CON ) {
-            coap_init_message(response, COAP_TYPE_ACK, 0, message->mid);
+            coap_init_message(response, COAP_TYPE_ACK, 0
+#if !defined(COAP_TCP)
+                , message->mid
+#endif
+                );
             message_send(contextP, response, fromSessionH);
         }
         observationP->callback(clientID,

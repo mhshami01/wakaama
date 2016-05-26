@@ -62,7 +62,11 @@
 
 #include "er-coap-13/er-coap-13.h"
 
-#ifdef LWM2M_WITH_LOGS
+#ifdef LOG
+#undef LOG
+#endif
+
+#if defined(LWM2M_WITH_LOGS) && !defined(NDEBUG)
 #define LOG(...) lwm2m_printf(__VA_ARGS__)
 #define LOG_ENTER_FUNC lwm2m_printf("Entering %s()\r\n", __FUNCTION__);
 #define LOG_EXIT_FUNC lwm2m_printf("Exiting %s()\r\n", __FUNCTION__);
@@ -89,7 +93,6 @@
 #define REG_OBJECT_MIN_LEN  5   // "</n>,"
 #define REG_PATH_END        ">,"
 #define REG_PATH_SEPARATOR  "/"
-
 #define REG_OBJECT_PATH             "<%s/%hu>,"
 #define REG_OBJECT_INSTANCE_PATH    "<%s/%hu/%hu>,"
 

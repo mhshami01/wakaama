@@ -325,6 +325,9 @@ lwm2m_binding_t utils_stringToBinding(uint8_t * buffer,
 {
     if (length == 0) return BINDING_UNKNOWN;
 
+#if defined(COAP_TCP)
+    return BINDING_T;
+#else
     switch (buffer[0])
     {
     case 'U':
@@ -373,6 +376,7 @@ lwm2m_binding_t utils_stringToBinding(uint8_t * buffer,
         default:
             break;
     }
+#endif
 
     return BINDING_UNKNOWN;
 }

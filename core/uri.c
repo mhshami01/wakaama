@@ -70,17 +70,16 @@ static int prv_parseNumber(uint8_t * uriString,
     {
         if ('0' <= uriString[*headP] && uriString[*headP] <= '9')
         {
-            result += uriString[*headP] - '0';
             result *= 10;
+            result += uriString[*headP] - '0';
         }
         else
         {
-            return -1;
+            break;
         }
         *headP += 1;
     }
 
-    result /= 10;
     return result;
 }
 

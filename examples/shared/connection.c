@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+
 #include "connection.h"
 
 // from commandline.c
@@ -34,7 +35,7 @@ int create_socket(const char * portStr, int addressFamily)
     memset(&hints, 0, sizeof hints);
     hints.ai_family = addressFamily;
     hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_flags = AI_PASSIVE;
+    hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
 
     if (0 != getaddrinfo(NULL, portStr, &hints, &res))
     {
@@ -55,6 +56,37 @@ int create_socket(const char * portStr, int addressFamily)
     }
 
     freeaddrinfo(res);
+    return s;
+}
+
+#include "errno.h"
+int make_server_socket(int port)
+{
+    int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s < 0)
+    {
+        printf("*****Failed to make a socket!*****\n");
+    }
+
+    else
+    {
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_port = htons(port);
+
+        if (bind(s, (struct sockaddr *) &addr, sizeof(addr)) < 0)
+        {
+            printf("****Failed to bind socket to port:%d!****\n", port);
+            return -1;
+        }
+
+		if (listen(s, 5) < 0)
+		{
+			fprintf(stderr, "Error listening on server socket: %d\r\n", errno);
+			return -1;
+		}
+    }
 
     return s;
 }
@@ -159,6 +191,28 @@ void connection_free(connection_t * connList)
     }
 }
 
+size_t send_short(int client, size_t value)
+{
+    uint8_t data[2];
+
+	data[0] = (uint8_t) (value >> 8);
+	data[1] = (uint8_t) (value >> 0);
+
+	return send(client, data, 2, 0);
+}
+
+size_t send_int(int client, size_t value)
+{
+    uint8_t data[4];
+
+	data[0] = (uint8_t) (value >> 24);
+	data[1] = (uint8_t) (value >> 16);
+	data[2] = (uint8_t) (value >> 8 );
+	data[3] = (uint8_t) (value >> 0 );
+
+	return send(client, data, 4, 0);
+}
+
 int connection_send(connection_t *connP,
                     uint8_t * buffer,
                     size_t length)
@@ -188,6 +242,10 @@ int connection_send(connection_t *connP,
     fprintf(stderr, "Sending %d bytes to [%s]:%hu\r\n", length, s, ntohs(port));
 
     output_buffer(stderr, buffer, length, 0);
+#endif
+
+#if defined(COAP_TCP)
+    if (2 != send_short(connP->sock, length)) return -1;
 #endif
 
     offset = 0;

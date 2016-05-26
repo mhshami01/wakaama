@@ -48,16 +48,15 @@
 
 #include "liblwm2m.h" /* for lwm2m_malloc() and lwm2m_free() */
 
-#define DEBUG 0
-#if DEBUG
+#if NDEBUG
+#define PRINTF(...)
+#define PRINT6ADDR(addr)
+#define PRINTLLADDR(addr)
+#else
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
 #define PRINT6ADDR(addr) PRINTF("[%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x]", ((uint8_t *)addr)[0], ((uint8_t *)addr)[1], ((uint8_t *)addr)[2], ((uint8_t *)addr)[3], ((uint8_t *)addr)[4], ((uint8_t *)addr)[5], ((uint8_t *)addr)[6], ((uint8_t *)addr)[7], ((uint8_t *)addr)[8], ((uint8_t *)addr)[9], ((uint8_t *)addr)[10], ((uint8_t *)addr)[11], ((uint8_t *)addr)[12], ((uint8_t *)addr)[13], ((uint8_t *)addr)[14], ((uint8_t *)addr)[15])
 #define PRINTLLADDR(lladdr) PRINTF("[%02x:%02x:%02x:%02x:%02x:%02x]",(lladdr)->addr[0], (lladdr)->addr[1], (lladdr)->addr[2], (lladdr)->addr[3],(lladdr)->addr[4], (lladdr)->addr[5])
-#else
-#define PRINTF(...)
-#define PRINT6ADDR(addr)
-#define PRINTLLADDR(addr)
 #endif
 
 /*-----------------------------------------------------------------------------------*/
@@ -261,7 +260,7 @@ coap_add_multi_option(multi_option_t **dst, uint8_t *option, size_t option_len, 
   if (opt)
   {
     opt->next = NULL;
-    opt->len = option_len;
+    opt->len = (uint8_t)option_len;
     if (is_static)
     {
       opt->data = option;
@@ -388,7 +387,11 @@ coap_get_mid()
 /*- MEASSAGE PROCESSING -------------------------------------------------------------*/
 /*-----------------------------------------------------------------------------------*/
 void
-coap_init_message(void *packet, coap_message_type_t type, uint8_t code, uint16_t mid)
+coap_init_message(void *packet, coap_message_type_t type, uint8_t code
+#if !defined(COAP_TCP)
+	, uint16_t mid
+#endif
+	)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
@@ -397,7 +400,9 @@ coap_init_message(void *packet, coap_message_type_t type, uint8_t code, uint16_t
 
   coap_pkt->type = type;
   coap_pkt->code = code;
+#if !defined(COAP_TCP)
   coap_pkt->mid = mid;
+#endif
 }
 
 void
@@ -413,6 +418,8 @@ coap_free_header(void *packet)
 /*-----------------------------------------------------------------------------------*/
 size_t coap_serialize_get_size(void *packet)
 {
+    if (packet == NULL) return 0;
+
     coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
     size_t length = 0;
 
@@ -525,16 +532,20 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   coap_pkt->buffer = buffer;
   coap_pkt->version = 1;
 
+#if !defined(COAP_TCP)
   PRINTF("-Serializing MID %u to %p, ", coap_pkt->mid, coap_pkt->buffer);
-
+#endif
   /* set header fields */
   coap_pkt->buffer[0]  = 0x00;
   coap_pkt->buffer[0] |= COAP_HEADER_VERSION_MASK & (coap_pkt->version)<<COAP_HEADER_VERSION_POSITION;
   coap_pkt->buffer[0] |= COAP_HEADER_TYPE_MASK & (coap_pkt->type)<<COAP_HEADER_TYPE_POSITION;
   coap_pkt->buffer[0] |= COAP_HEADER_TOKEN_LEN_MASK & (coap_pkt->token_len)<<COAP_HEADER_TOKEN_LEN_POSITION;
   coap_pkt->buffer[1] = coap_pkt->code;
+
+#if !defined(COAP_TCP)
   coap_pkt->buffer[2] = (uint8_t) ((coap_pkt->mid)>>8);
   coap_pkt->buffer[3] = (uint8_t) (coap_pkt->mid);
+#endif
 
   /* set Token */
   PRINTF("Token (len %u)", coap_pkt->token_len);
@@ -577,14 +588,14 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   coap_free_header(packet);
 
   /* Pack payload */
-  /* Payload marker */
-  if (coap_pkt->payload_len)
-  {
-    *option = 0xFF;
-    ++option;
-  }
+    /* Payload marker */
+    if (coap_pkt->payload_len)
+    {
+      *option = 0xFF;
+      ++option;
+    }
 
-  memmove(option, coap_pkt->payload, coap_pkt->payload_len);
+    memmove(option, coap_pkt->payload, coap_pkt->payload_len);
 
   PRINTF("-Done %u B (header len %u, payload len %u)-\n", coap_pkt->payload_len + option - buffer, option - buffer, coap_pkt->payload_len);
 
@@ -618,7 +629,9 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   coap_pkt->type = (COAP_HEADER_TYPE_MASK & coap_pkt->buffer[0])>>COAP_HEADER_TYPE_POSITION;
   coap_pkt->token_len = MIN(COAP_TOKEN_LEN, (COAP_HEADER_TOKEN_LEN_MASK & coap_pkt->buffer[0])>>COAP_HEADER_TOKEN_LEN_POSITION);
   coap_pkt->code = coap_pkt->buffer[1];
+#if !defined(COAP_TCP)
   coap_pkt->mid = coap_pkt->buffer[2]<<8 | coap_pkt->buffer[3];
+#endif
 
   if (coap_pkt->version != 1)
   {
@@ -704,7 +717,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
         PRINTF("Max-Age [%lu]\n", coap_pkt->max_age);
         break;
       case COAP_OPTION_ETAG:
-        coap_pkt->etag_len = MIN(COAP_ETAG_LEN, option_length);
+        coap_pkt->etag_len = (uint8_t)(MIN(COAP_ETAG_LEN, option_length));
         memcpy(coap_pkt->etag, current_option, coap_pkt->etag_len);
         PRINTF("ETag %u [0x%02X%02X%02X%02X%02X%02X%02X%02X]\n", coap_pkt->etag_len,
           coap_pkt->etag[0],
@@ -727,7 +740,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
         break;
       case COAP_OPTION_IF_MATCH:
         /*FIXME support multiple ETags */
-        coap_pkt->if_match_len = MIN(COAP_ETAG_LEN, option_length);
+        coap_pkt->if_match_len = (uint8_t)(MIN(COAP_ETAG_LEN, option_length));
         memcpy(coap_pkt->if_match, current_option, coap_pkt->if_match_len);
         PRINTF("If-Match %u [0x%02X%02X%02X%02X%02X%02X%02X%02X]\n", coap_pkt->if_match_len,
           coap_pkt->if_match[0],
@@ -758,13 +771,13 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
         /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
         // coap_merge_multi_option( (char **) &(coap_pkt->uri_path), &(coap_pkt->uri_path_len), current_option, option_length, 0);
         coap_add_multi_option( &(coap_pkt->uri_path), current_option, option_length, 1);
-        PRINTF("Uri-Path [%.*s]\n", sizeof(multi_option_t), coap_pkt->uri_path);
+        PRINTF("Uri-Path [%.*s]\n", option_length, current_option);
         break;
       case COAP_OPTION_URI_QUERY:
         /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
         // coap_merge_multi_option( (char **) &(coap_pkt->uri_query), &(coap_pkt->uri_query_len), current_option, option_length, '&');
         coap_add_multi_option( &(coap_pkt->uri_query), current_option, option_length, 1);
-        PRINTF("Uri-Query [%.*s]\n", sizeof(multi_option_t), coap_pkt->uri_query);
+        PRINTF("Uri-Query [%.*s]\n", option_length, current_option);
         break;
 
       case COAP_OPTION_LOCATION_PATH:
@@ -773,7 +786,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       case COAP_OPTION_LOCATION_QUERY:
         /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
         coap_merge_multi_option( &(coap_pkt->location_query), &(coap_pkt->location_query_len), current_option, option_length, '&');
-        PRINTF("Location-Query [%.*s]\n", coap_pkt->location_query_len, coap_pkt->location_query);
+        PRINTF("Location-Query [%.*s]\n", option_length, current_option);
         break;
 
       case COAP_OPTION_PROXY_URI:
@@ -956,7 +969,7 @@ coap_set_header_etag(void *packet, const uint8_t *etag, size_t etag_len)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
-  coap_pkt->etag_len = MIN(COAP_ETAG_LEN, etag_len);
+  coap_pkt->etag_len = (uint8_t)(MIN(COAP_ETAG_LEN, etag_len));
   memcpy(coap_pkt->etag, etag, coap_pkt->etag_len);
 
   SET_OPTION(coap_pkt, COAP_OPTION_ETAG);
@@ -980,7 +993,7 @@ coap_set_header_if_match(void *packet, const uint8_t *etag, size_t etag_len)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
-  coap_pkt->if_match_len = MIN(COAP_ETAG_LEN, etag_len);
+  coap_pkt->if_match_len = (uint8_t)(MIN(COAP_ETAG_LEN, etag_len));
   memcpy(coap_pkt->if_match, etag, coap_pkt->if_match_len);
 
   SET_OPTION(coap_pkt, COAP_OPTION_IF_MATCH);
@@ -1016,7 +1029,7 @@ coap_set_header_token(void *packet, const uint8_t *token, size_t token_len)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
-  coap_pkt->token_len = MIN(COAP_TOKEN_LEN, token_len);
+  coap_pkt->token_len = (uint8_t)(MIN(COAP_TOKEN_LEN, token_len));
   memcpy(coap_pkt->token, token, coap_pkt->token_len);
 
   SET_OPTION(coap_pkt, COAP_OPTION_TOKEN);
@@ -1154,7 +1167,17 @@ coap_set_header_uri_query(void *packet, const char *query)
     {
         int i = 0;
 
-        while (query[i] != 0 && query[i] != '&') i++;
+        // Hack.  For tk=, just take the entire rest of the string because the value has embedded &'s
+        // The correct fix is to URL encoded the value on the client and decoded on the server, but we're hacking for January private preview.
+        // query is guaranteed to be null delimited, so we don't have to check the length because the first '\0' will short circuit.
+        if (query[0] == 't' && query[1] == 'k' && query[2] == '=')
+        {
+            while (query[i] != 0) i++;
+        }
+        else
+        {
+            while (query[i] != 0 && query[i] != '&') i++;
+        }
         coap_add_multi_option(&(coap_pkt->uri_query), (uint8_t *)query, i, 0);
 
         if (query[i] == '&') i++;
@@ -1359,7 +1382,7 @@ coap_set_payload(void *packet, const void *payload, size_t length)
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   coap_pkt->payload = (uint8_t *) payload;
-  coap_pkt->payload_len = length;
+  coap_pkt->payload_len = (uint16_t)(length);
 
   return coap_pkt->payload_len;
 }

@@ -147,8 +147,6 @@ void prv_deleteTransactionList(lwm2m_context_t * context)
 void lwm2m_close(lwm2m_context_t * contextP)
 {
 #ifdef LWM2M_CLIENT_MODE
-    int i;
-
     lwm2m_deregister(contextP);
     prv_deleteServerList(contextP);
     prv_deleteBootstrapServerList(contextP);
@@ -371,6 +369,32 @@ int lwm2m_remove_object(lwm2m_context_t * contextP,
     }
 
     return 0;
+}
+
+int lwm2m_start(lwm2m_context_t * contextP)
+{
+    int result;
+    bool cleanup = (NULL != contextP->bootstrapServerList) || (NULL != contextP->serverList);
+    prv_deleteTransactionList(contextP);
+    prv_deleteObservedList(contextP);
+    if (cleanup)
+    {
+        LOG("lwm2m_start: cleanup\n");
+        prv_deleteServerList(contextP);
+        prv_deleteBootstrapServerList(contextP);
+    }
+    result = object_getServers(contextP);
+    if (0 > result)
+    {
+        LOG("lwm2m_start: security - or server-objects configuration errorn\n");
+        if (cleanup)
+        {
+            LOG("\n    ****  lwm2m_start: cleanup on error\n");
+            prv_deleteServerList(contextP);
+            prv_deleteBootstrapServerList(contextP);
+        }
+    }
+    return result;
 }
 
 #endif
