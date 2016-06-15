@@ -59,14 +59,9 @@
 #include <stdio.h>
 
 
-static lwm2m_object_t * prv_findObject(lwm2m_context_t * contextP,
+lwm2m_object_t * prv_findObject(lwm2m_context_t * contextP,
                                         uint16_t Id)
 {
-#if defined(MSFT_LWM2M_CLIENT)
-    lwm2m_object_t *retValue = contextP->objectList[2];
-    retValue->objID = Id;
-    return retValue;
-#else
     int i;
 
     for (i = 0 ; i < contextP->numObject ; i++)
@@ -78,7 +73,6 @@ static lwm2m_object_t * prv_findObject(lwm2m_context_t * contextP,
     }
 
     return NULL;
-#endif
 }
 
 uint8_t object_checkReadable(lwm2m_context_t * contextP,
