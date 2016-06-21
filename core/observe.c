@@ -164,7 +164,7 @@ coap_status_t observe_handleRequest(lwm2m_context_t * contextP,
     lwm2m_watcher_t * watcherP;
     uint32_t count;
 
-    LOG("observe_handleRequest()\r\n");
+    LOG("observe_handleRequest(/%d/%d/%d)\r\n", uriP->objectId, uriP->instanceId, uriP->resourceId);
 
     coap_get_header_observe(message, &count);
 
@@ -295,9 +295,9 @@ coap_status_t observe_setParameters(lwm2m_context_t * contextP,
     // Check rule “lt” value + 2*”stp” values < “gt” value
     if ((((attrP->toSet | (watcherP->parameters?watcherP->parameters->toSet:0)) & ~attrP->toClear) & ATTR_FLAG_NUMERIC) == ATTR_FLAG_NUMERIC)
     {
-        float gt;
-        float lt;
-        float stp;
+        double gt;
+        double lt;
+        double stp;
 
         if (0 != (attrP->toSet & LWM2M_ATTR_FLAG_GREATER_THAN))
         {
@@ -381,12 +381,15 @@ lwm2m_observed_t * observe_findByUri(lwm2m_context_t * contextP,
                 if ((!LWM2M_URI_IS_SET_RESOURCE(uriP) && !LWM2M_URI_IS_SET_RESOURCE(&(targetP->uri)))
                     || (LWM2M_URI_IS_SET_RESOURCE(uriP) && LWM2M_URI_IS_SET_RESOURCE(&(targetP->uri)) && (uriP->resourceId == targetP->uri.resourceId)))
                 {
-                    return targetP;
+                    break;
                 }
             }
         }
+
         targetP = targetP->next;
     }
+
+    return targetP;
 }
 
 void lwm2m_resource_value_changed(lwm2m_context_t * contextP,
