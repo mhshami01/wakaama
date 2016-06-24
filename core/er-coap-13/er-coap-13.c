@@ -65,7 +65,7 @@
 static uint16_t current_mid = 0;
 
 coap_status_t coap_error_code = NO_ERROR;
-char *coap_error_message = "";
+const char *coap_error_message = "";
 /*-----------------------------------------------------------------------------------*/
 /*- LOCAL HELP FUNCTIONS ------------------------------------------------------------*/
 /*-----------------------------------------------------------------------------------*/
@@ -300,6 +300,7 @@ free_multi_option(multi_option_t *dst)
   if (dst)
   {
     multi_option_t *n = dst->next;
+    dst->next = NULL;
     if (dst->is_static == 0)
     {
         lwm2m_free(dst->data);
@@ -413,6 +414,9 @@ coap_free_header(void *packet)
     free_multi_option(coap_pkt->uri_path);
     free_multi_option(coap_pkt->uri_query);
     free_multi_option(coap_pkt->location_path);
+    coap_pkt->uri_path = NULL;
+    coap_pkt->uri_query = NULL;
+    coap_pkt->location_path = NULL;
 }
 
 /*-----------------------------------------------------------------------------------*/
